@@ -20,11 +20,11 @@ var assign = require('Object.assign');
 var invariant = require('invariant');
 var warning = require('warning');
 
-var instancesByReactID = {};
-
 var didWarnValueLink = false;
 var didWarnCheckedLink = false;
 var didWarnValueNull = false;
+var didWarnValueDefaultValue = false;
+var didWarnCheckedDefaultChecked = false;
 
 function forceUpdateIfMounted() {
   if (this._rootNodeID) {
@@ -104,6 +104,36 @@ var ReactDOMInput = {
         );
         didWarnCheckedLink = true;
       }
+      if (
+        props.checked !== undefined &&
+        props.defaultChecked !== undefined &&
+        !didWarnCheckedDefaultChecked
+      ) {
+        warning(
+          false,
+          'Input elements must be either controlled or uncontrolled ' +
+          '(specify either the checked prop, or the defaultChecked prop, but not ' +
+          'both). Decide between using a controlled or uncontrolled input ' +
+          'element and remove one of these props. More info: ' +
+          'https://fb.me/react-controlled-components'
+        );
+        didWarnCheckedDefaultChecked = true;
+      }
+      if (
+        props.value !== undefined &&
+        props.defaultValue !== undefined &&
+        !didWarnValueDefaultValue
+      ) {
+        warning(
+          false,
+          'Input elements must be either controlled or uncontrolled ' +
+          '(specify either the value prop, or the defaultValue prop, but not ' +
+          'both). Decide between using a controlled or uncontrolled input ' +
+          'element and remove one of these props. More info: ' +
+          'https://fb.me/react-controlled-components'
+        );
+        didWarnValueDefaultValue = true;
+      }
       warnIfValueIsNull(props);
     }
 
@@ -114,15 +144,6 @@ var ReactDOMInput = {
       listeners: null,
       onChange: _handleChange.bind(inst),
     };
-  },
-
-  mountReadyWrapper: function(inst) {
-    // Can't be in mountWrapper or else server rendering leaks.
-    instancesByReactID[inst._rootNodeID] = inst;
-  },
-
-  unmountWrapper: function(inst) {
-    delete instancesByReactID[inst._rootNodeID];
   },
 
   updateWrapper: function(inst) {

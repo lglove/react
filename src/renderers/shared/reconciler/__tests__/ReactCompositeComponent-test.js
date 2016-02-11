@@ -874,6 +874,123 @@ describe('ReactCompositeComponent', function() {
     expect(div.children[0].id).toBe('aliens');
   });
 
+  it('should trigger componentWillReceiveProps for context changes', function() {
+    var contextChanges = 0;
+    var propChanges = 0;
+
+    var GrandChild = React.createClass({
+      contextTypes: {
+        foo: ReactPropTypes.string.isRequired,
+      },
+
+      componentWillReceiveProps: function(nextProps, nextContext) {
+        expect('foo' in nextContext).toBe(true);
+
+        if (nextProps !== this.props) {
+          propChanges++;
+        }
+
+        if (nextContext !== this.context) {
+          contextChanges++;
+        }
+      },
+
+      render: function() {
+        return <span className="grand-child">{this.props.children}</span>;
+      },
+    });
+
+    var ChildWithContext = React.createClass({
+      contextTypes: {
+        foo: ReactPropTypes.string.isRequired,
+      },
+
+      componentWillReceiveProps: function(nextProps, nextContext) {
+        expect('foo' in nextContext).toBe(true);
+
+        if (nextProps !== this.props) {
+          propChanges++;
+        }
+
+        if (nextContext !== this.context) {
+          contextChanges++;
+        }
+      },
+
+      render: function() {
+        return <div className="child-with">{this.props.children}</div>;
+      },
+    });
+
+    var ChildWithoutContext = React.createClass({
+      componentWillReceiveProps: function(nextProps, nextContext) {
+        expect('foo' in nextContext).toBe(false);
+
+        if (nextProps !== this.props) {
+          propChanges++;
+        }
+
+        if (nextContext !== this.context) {
+          contextChanges++;
+        }
+      },
+
+      render: function() {
+        return <div className="child-without">{this.props.children}</div>;
+      },
+    });
+
+    var Parent = React.createClass({
+      childContextTypes: {
+        foo: ReactPropTypes.string,
+      },
+
+      getInitialState() {
+        return {
+          foo: 'abc',
+        };
+      },
+
+      getChildContext: function() {
+        return {
+          foo: this.state.foo,
+        };
+      },
+
+      onClick() {
+        this.setState({
+          foo: 'def',
+        });
+      },
+
+      render: function() {
+        return <div className="parent" onClick={this.onClick}>{this.props.children}</div>;
+      },
+    });
+
+    var div = document.createElement('div');
+
+    ReactDOM.render(
+      <Parent>
+        <ChildWithoutContext>
+          A1
+          <GrandChild>A2</GrandChild>
+        </ChildWithoutContext>
+
+        <ChildWithContext>
+          B1
+          <GrandChild>B2</GrandChild>
+        </ChildWithContext>
+      </Parent>,
+      div
+    );
+
+    ReactTestUtils.Simulate.click(div.childNodes[0]);
+
+    expect(propChanges).toBe(0);
+    expect(contextChanges).toBe(3); // ChildWithContext, GrandChild x 2
+  });
+
   it('should disallow nested render calls', function() {
     var Inner = React.createClass({
       render: function() {
@@ -956,21 +1073,11 @@ describe('ReactCompositeComponent', function() {
     expect(ReactDOM.findDOMNode(comp.refs.static0).textContent).toBe('A');
     expect(ReactDOM.findDOMNode(comp.refs.static1).textContent).toBe('B');
 
-    expect(ReactDOM.findDOMNode(comp.refs.static0))
-      .toBe(comp.refs.static0.getDOMNode());
-    expect(ReactDOM.findDOMNode(comp.refs.static1))
-      .toBe(comp.refs.static1.getDOMNode());
-
     // When flipping the order, the refs should update even though the actual
     // contents do not
     ReactDOM.render(<Component flipped={true} />, container);
     expect(ReactDOM.findDOMNode(comp.refs.static0).textContent).toBe('B');
     expect(ReactDOM.findDOMNode(comp.refs.static1).textContent).toBe('A');
-
-    expect(ReactDOM.findDOMNode(comp.refs.static0))
-      .toBe(comp.refs.static0.getDOMNode());
-    expect(ReactDOM.findDOMNode(comp.refs.static1))
-      .toBe(comp.refs.static1.getDOMNode());
   });
 
   it('should allow access to findDOMNode in componentWillUnmount', function() {
@@ -979,11 +1086,11 @@ describe('ReactCompositeComponent', function() {
     var Component = React.createClass({
       componentDidMount: function() {
         a = ReactDOM.findDOMNode(this);
-        expect(a).toBe(this.getDOMNode());
+        expect(a).not.toBe(null);
       },
       componentWillUnmount: function() {
         b = ReactDOM.findDOMNode(this);
-        expect(b).toBe(this.getDOMNode());
+        expect(b).not.toBe(null);
       },
       render: function() {
         return <div />;
@@ -994,19 +1101,6 @@ describe('ReactCompositeComponent', function() {
     ReactDOM.render(<Component />, container);
     ReactDOM.unmountComponentAtNode(container);
     expect(a).toBe(b);
-  });
-
-  it('should warn when using non-React functions in JSX', function() {
-    function NotAComponent() {
-      return [<div />, <div />];
-    }
-    expect(function() {
-      ReactTestUtils.renderIntoDocument(<div><NotAComponent /></div>);
-    }).toThrow();  // has no method 'render'
-    expect(console.error.calls.length).toBe(1);
-    expect(console.error.argsForCall[0][0]).toContain(
-      'NotAComponent(...): No `render` method found'
-    );
   });
 
   it('context should be passed down from the parent', function() {
@@ -1138,37 +1232,6 @@ describe('ReactCompositeComponent', function() {
     ReactDOM.render(<Outer />, container);
 
     expect(console.error.calls.length).toBe(0);
-  });
-
-  it('should warn when a class does not extend React.Component', function() {
-
-    var container = document.createElement('div');
-
-    class Foo {
-      render() {
-        return <span />;
-      }
-    }
-
-    function Bar() { }
-    Bar.prototype = Object.create(React.Component.prototype);
-    Bar.prototype.render = function() {
-      return <span />;
-    };
-
-    expect(console.error.calls.length).toBe(0);
-
-    ReactDOM.render(<Bar />, container);
-
-    expect(console.error.calls.length).toBe(0);
-
-    ReactDOM.render(<Foo />, container);
-
-    expect(console.error.calls.length).toBe(1);
-    expect(console.error.argsForCall[0][0]).toContain(
-      'React component classes must extend React.Component'
-    );
-
   });
 
   it('should warn when mutated props are passed', function() {

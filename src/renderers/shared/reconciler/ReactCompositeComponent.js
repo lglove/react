@@ -43,7 +43,16 @@ function StatelessComponent(Component) {
 }
 StatelessComponent.prototype.render = function() {
   var Component = ReactInstanceMap.get(this)._currentElement.type;
-  return Component(this.props, this.context, this.updater);
+  var element = Component(this.props, this.context, this.updater);
+  if (__DEV__) {
+    warning(
+      element === null || element === false || ReactElement.isValidElement(element),
+      '%s must be a class extending React.Component or be a stateless ' +
+      'function that returns a valid React element.',
+      Component.displayName || Component.name || 'Component'
+    );
+  }
+  return element;
 };
 
 /**
@@ -147,13 +156,7 @@ var ReactCompositeComponentMixin = {
     var inst;
     var renderedElement;
 
-    // This is a way to detect if Component is a stateless arrow function
-    // component, which is not newable. It might not be 100% reliable but is
-    // something we can do until we start detecting that Component extends
-    // React.Component. We already assume that typeof Component === 'function'.
-    var canInstantiate = 'prototype' in Component;
-
-    if (canInstantiate) {
+    if (Component.prototype && Component.prototype.isReactComponent) {
       if (__DEV__) {
         ReactCurrentOwner.current = this;
         try {
@@ -164,10 +167,7 @@ var ReactCompositeComponentMixin = {
       } else {
         inst = new Component(publicProps, publicContext, ReactUpdateQueue);
       }
-    }
-
-    if (!canInstantiate || inst === null || inst === false || ReactElement.isValidElement(inst)) {
-      renderedElement = inst;
+    } else {
       inst = new StatelessComponent(Component);
     }
 
@@ -178,19 +178,7 @@ var ReactCompositeComponentMixin = {
         warning(
           false,
           '%s(...): No `render` method found on the returned component ' +
-          'instance: you may have forgotten to define `render`, returned ' +
-          'null/false from a stateless component, or tried to render an ' +
-          'element whose type is a function that isn\'t a React component.',
-          Component.displayName || Component.name || 'Component'
-        );
-      } else {
-        // We support ES6 inheriting from React.Component, the module pattern,
-        // and stateless components, but not ES6 classes that don't extend
-        warning(
-          (Component.prototype && Component.prototype.isReactComponent) ||
-            !canInstantiate ||
-            !(inst instanceof Component),
-          '%s(...): React component classes must extend React.Component.',
+          'instance: you may have forgotten to define `render`.',
           Component.displayName || Component.name || 'Component'
         );
       }
@@ -200,7 +188,7 @@ var ReactCompositeComponentMixin = {
         Component.displayName || Component.name || 'Component';
 
       warning(
-        typeof inst.props === 'undefined' || !propsMutated,
+        inst.props === undefined || !propsMutated,
         '%s(...): When calling super() in `%s`, make sure to pass ' +
         'up the same props that your component\'s constructor was passed.',
         componentName, componentName
@@ -381,6 +369,9 @@ var ReactCompositeComponentMixin = {
    * @internal
    */
   unmountComponent: function() {
+    if (!this._renderedComponent) {
+      return;
+    }
     var inst = this._instance;
 
     if (inst.componentWillUnmount) {
@@ -647,11 +638,17 @@ var ReactCompositeComponentMixin = {
     nextUnmaskedContext
   ) {
     var inst = this._instance;
-
-    var nextContext = this._context === nextUnmaskedContext ?
-      inst.context :
-      this._processContext(nextUnmaskedContext);
+    var willReceive = false;
+    var nextContext;
     var nextProps;
+
+    // Determine if the context has changed or not
+    if (this._context === nextUnmaskedContext) {
+      nextContext = inst.context;
+    } else {
+      nextContext = this._processContext(nextUnmaskedContext);
+      willReceive = true;
+    }
 
     // Distinguish between a props update versus a simple state update
     if (prevParentElement === nextParentElement) {
@@ -660,13 +657,14 @@ var ReactCompositeComponentMixin = {
       nextProps = nextParentElement.props;
     } else {
       nextProps = this._processProps(nextParentElement.props);
-      // An update here will schedule an update but immediately set
-      // _pendingStateQueue which will ensure that any state updates gets
-      // immediately reconciled instead of waiting for the next batch.
+      willReceive = true;
+    }
 
-      if (inst.componentWillReceiveProps) {
-        inst.componentWillReceiveProps(nextProps, nextContext);
-      }
+    // An update here will schedule an update but immediately set
+    // _pendingStateQueue which will ensure that any state updates gets
+    // immediately reconciled instead of waiting for the next batch.
+    if (willReceive && inst.componentWillReceiveProps) {
+      inst.componentWillReceiveProps(nextProps, nextContext);
     }
 
     var nextState = this._processPendingState(nextProps, nextContext);
@@ -678,7 +676,7 @@ var ReactCompositeComponentMixin = {
 
     if (__DEV__) {
       warning(
-        typeof shouldUpdate !== 'undefined',
+        shouldUpdate !== undefined,
         '%s.shouldComponentUpdate(): Returned undefined instead of a ' +
         'boolean value. Make sure to return true or false.',
         this.getName() || 'ReactCompositeComponent'
@@ -806,13 +804,7 @@ var ReactCompositeComponentMixin = {
         this._processChildContext(context)
       );
     } else {
-      // TODO: This is currently necessary due to the unfortunate caching
-      // that ReactMount does which makes it exceedingly difficult to unmount
-      // a set of siblings without accidentally repopulating the node cache (see
-      // #5151). Once ReactMount no longer stores the nodes by ID, this method
-      // can go away.
       var oldNativeNode = ReactReconciler.getNativeNode(prevComponentInstance);
-
       ReactReconciler.unmountComponent(prevComponentInstance);
 
       this._renderedNodeType = ReactNodeTypes.getType(nextRenderedElement);
@@ -850,7 +842,7 @@ var ReactCompositeComponentMixin = {
     var renderedComponent = inst.render();
     if (__DEV__) {
       // We allow auto-mocks to proceed as if they're returning null.
-      if (typeof renderedComponent === 'undefined' &&
+      if (renderedComponent === undefined &&
           inst.render._isMockFunction) {
         // This is probably bad practice. Consider warning here and
         // deprecating this convenience.

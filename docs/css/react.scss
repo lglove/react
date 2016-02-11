@@ -409,6 +409,7 @@ h1, h2, h3, h4, h5, h6 {
   .playgroundPreview {
     padding: 0;
     width: 600px;
+    word-wrap: break-word;
 
     pre {
       @include code-typography;
@@ -742,6 +743,8 @@ p a code {
   margin-bottom: 0;
   background-color: transparent;
   border: 0;
+  float: left;
+  min-width: 100%;
 }
 
 .highlight pre code {

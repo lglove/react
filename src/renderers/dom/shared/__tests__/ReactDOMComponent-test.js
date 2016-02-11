@@ -196,8 +196,11 @@ describe('ReactDOMComponent', function() {
       ReactDOM.render(<span style={style}></span>, div);
       ReactDOM.render(<span style={style}></span>, div);
 
-      expect(console.error.argsForCall.length).toBe(1);
+      expect(console.error.argsForCall.length).toBe(2);
       expect(console.error.argsForCall[0][0]).toEqual(
+        'Warning: `NaN` is an invalid value for the `fontSize` css style property',
+      );
+      expect(console.error.argsForCall[1][0]).toEqual(
         'Warning: `span` was passed a style object that has previously been ' +
         'mutated. Mutating `style` is deprecated. Consider cloning it ' +
         'beforehand. Check the `render` using <span>. Previous style: ' +
@@ -573,7 +576,45 @@ describe('ReactDOMComponent', function() {
       expect(container.textContent).toEqual('bonjour');
     });
 
-    it('should not incur unnecessary DOM mutations', function() {
+    it('should not incur unnecessary DOM mutations for attributes', function() {
+      var container = document.createElement('div');
+      ReactDOM.render(<div id="" />, container);
+
+      var node = container.firstChild;
+      var nodeSetAttribute = node.setAttribute;
+      node.setAttribute = jest.genMockFn();
+      node.setAttribute.mockImpl(nodeSetAttribute);
+
+      var nodeRemoveAttribute = node.removeAttribute;
+      node.removeAttribute = jest.genMockFn();
+      node.removeAttribute.mockImpl(nodeRemoveAttribute);
+
+      ReactDOM.render(<div id="" />, container);
+      expect(node.setAttribute.mock.calls.length).toBe(0);
+      expect(node.removeAttribute.mock.calls.length).toBe(0);
+
+      ReactDOM.render(<div id="foo" />, container);
+      expect(node.setAttribute.mock.calls.length).toBe(1);
+      expect(node.removeAttribute.mock.calls.length).toBe(0);
+
+      ReactDOM.render(<div id="foo" />, container);
+      expect(node.setAttribute.mock.calls.length).toBe(1);
+      expect(node.removeAttribute.mock.calls.length).toBe(0);
+
+      ReactDOM.render(<div />, container);
+      expect(node.setAttribute.mock.calls.length).toBe(1);
+      expect(node.removeAttribute.mock.calls.length).toBe(1);
+
+      ReactDOM.render(<div id="" />, container);
+      expect(node.setAttribute.mock.calls.length).toBe(2);
+      expect(node.removeAttribute.mock.calls.length).toBe(1);
+
+      ReactDOM.render(<div />, container);
+      expect(node.setAttribute.mock.calls.length).toBe(2);
+      expect(node.removeAttribute.mock.calls.length).toBe(2);
+    });
+
+    it('should not incur unnecessary DOM mutations for string properties', function() {
       var container = document.createElement('div');
       ReactDOM.render(<div value="" />, container);
 
@@ -592,8 +633,52 @@ describe('ReactDOMComponent', function() {
       ReactDOM.render(<div value="" />, container);
       expect(nodeValueSetter.mock.calls.length).toBe(0);
 
+      ReactDOM.render(<div value="foo" />, container);
+      expect(nodeValueSetter.mock.calls.length).toBe(1);
+
+      ReactDOM.render(<div value="foo" />, container);
+      expect(nodeValueSetter.mock.calls.length).toBe(1);
+
+      ReactDOM.render(<div />, container);
+      expect(nodeValueSetter.mock.calls.length).toBe(2);
+
+      ReactDOM.render(<div value={null} />, container);
+      expect(nodeValueSetter.mock.calls.length).toBe(2);
+
+      ReactDOM.render(<div value="" />, container);
+      expect(nodeValueSetter.mock.calls.length).toBe(2);
+
+      ReactDOM.render(<div />, container);
+      expect(nodeValueSetter.mock.calls.length).toBe(2);
+    });
+
+    it('should not incur unnecessary DOM mutations for boolean properties', function() {
+      var container = document.createElement('div');
+      ReactDOM.render(<div checked={true} />, container);
+
+      var node = container.firstChild;
+      var nodeValue = true;
+      var nodeValueSetter = jest.genMockFn();
+      Object.defineProperty(node, 'checked', {
+        get: function() {
+          return nodeValue;
+        },
+        set: nodeValueSetter.mockImplementation(function(newValue) {
+          nodeValue = newValue;
+        }),
+      });
+
+      ReactDOM.render(<div checked={true} />, container);
+      expect(nodeValueSetter.mock.calls.length).toBe(0);
+
       ReactDOM.render(<div />, container);
       expect(nodeValueSetter.mock.calls.length).toBe(1);
+
+      ReactDOM.render(<div checked={false} />, container);
+      expect(nodeValueSetter.mock.calls.length).toBe(2);
+
+      ReactDOM.render(<div checked={true} />, container);
+      expect(nodeValueSetter.mock.calls.length).toBe(3);
     });
 
     it('should ignore attribute whitelist for elements with the "is: attribute', function() {
@@ -767,43 +852,44 @@ describe('ReactDOMComponent', function() {
     });
 
     it('should warn against children for void elements', function() {
-      spyOn(console, 'error');
-
       var container = document.createElement('div');
 
-      ReactDOM.render(<input>children</input>, container);
-
-      expect(console.error.argsForCall.length).toBe(1);
-      expect(console.error.argsForCall[0][0]).toContain('void element');
+      expect(function() {
+        ReactDOM.render(<input>children</input>, container);
+      }).toThrow(
+        'input is a void element tag and must not have `children` or ' +
+        'use `props.dangerouslySetInnerHTML`.'
+      );
     });
 
     it('should warn against dangerouslySetInnerHTML for void elements', function() {
-      spyOn(console, 'error');
-
       var container = document.createElement('div');
 
-      ReactDOM.render(
-        <input dangerouslySetInnerHTML={{__html: 'content'}} />,
-        container
+      expect(function() {
+        ReactDOM.render(
+          <input dangerouslySetInnerHTML={{__html: 'content'}} />,
+          container
+        );
+      }).toThrow(
+        'input is a void element tag and must not have `children` or use ' +
+        '`props.dangerouslySetInnerHTML`.'
       );
-
-      expect(console.error.argsForCall.length).toBe(1);
-      expect(console.error.argsForCall[0][0]).toContain('void element');
     });
 
     it('should treat menuitem as a void element but still create the closing tag', function() {
-      spyOn(console, 'error');
-
       var container = document.createElement('div');
 
       var returnedValue = ReactDOMServer.renderToString(<menu><menuitem /></menu>);
 
       expect(returnedValue).toContain('</menuitem>');
 
-      ReactDOM.render(<menu><menuitem>children</menuitem></menu>, container);
+      expect(function() {
+        ReactDOM.render(<menu><menuitem>children</menuitem></menu>, container);
+      }).toThrow(
+        'menuitem is a void element tag and must not have `children` or use ' +
+        '`props.dangerouslySetInnerHTML`.'
+      );
 
-      expect(console.error.argsForCall.length).toBe(1);
-      expect(console.error.argsForCall[0][0]).toContain('void element');
     });
 
     it('should validate against multiple children props', function() {
@@ -921,17 +1007,17 @@ describe('ReactDOMComponent', function() {
     });
 
     it('should warn for children on void elements', function() {
-      spyOn(console, 'error');
       var X = React.createClass({
         render: function() {
           return <input>moo</input>;
         },
       });
+
       var container = document.createElement('div');
-      ReactDOM.render(<X />, container);
-      expect(console.error.argsForCall.length).toBe(1);
-      expect(console.error.argsForCall[0][0]).toBe(
-        'Warning: input is a void element tag and must not have `children` ' +
+      expect(function() {
+        ReactDOM.render(<X />, container);
+      }).toThrow(
+        'input is a void element tag and must not have `children` ' +
         'or use `props.dangerouslySetInnerHTML`. Check the render method of X.'
       );
     });
@@ -945,26 +1031,28 @@ describe('ReactDOMComponent', function() {
     });
 
     it('should warn against children for void elements', function() {
-      spyOn(console, 'error');
-
       ReactDOM.render(<input />, container);
-      ReactDOM.render(<input>children</input>, container);
 
-      expect(console.error.argsForCall.length).toBe(1);
-      expect(console.error.argsForCall[0][0]).toContain('void element');
+      expect(function() {
+        ReactDOM.render(<input>children</input>, container);
+      }).toThrow(
+        'input is a void element tag and must not have `children` or use ' +
+        '`props.dangerouslySetInnerHTML`.'
+      );
     });
 
     it('should warn against dangerouslySetInnerHTML for void elements', function() {
-      spyOn(console, 'error');
-
       ReactDOM.render(<input />, container);
-      ReactDOM.render(
-        <input dangerouslySetInnerHTML={{__html: 'content'}} />,
-        container
-      );
 
-      expect(console.error.argsForCall.length).toBe(1);
-      expect(console.error.argsForCall[0][0]).toContain('void element');
+      expect(function() {
+        ReactDOM.render(
+          <input dangerouslySetInnerHTML={{__html: 'content'}} />,
+          container
+        );
+      }).toThrow(
+        'input is a void element tag and must not have `children` or use ' +
+        '`props.dangerouslySetInnerHTML`.'
+      );
     });
 
     it('should validate against multiple children props', function() {
